@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Token Dash</title>
+<style>
+  html,body { margin:0; background:#0b1020; font-family:Arial, sans-serif; user-select:none; }
+  #game { display:none; background:#071022; }
+  #startScreen {
+    position:fixed; inset:0; display:flex; flex-direction:column;
+    justify-content:center; align-items:center; background:#0b1020;
+  }
+  #logo {
+    font-size:64px; font-weight:900; color:#1bd7ff;
+    text-shadow:0 0 18px #1bd7ff;
+    cursor:pointer;
+    transition:transform .2s;
+  }
+  #logo:hover { transform:scale(1.07); }
+  #clickText {
+    margin-top:18px; color:#9cc; font-size:20px; opacity:0.8;
+  }
+  .overlay {
+    position: fixed; left: 20px; top: 20px; z-index: 10;
+    background: rgba(0,0,0,0.35); padding:10px 12px; border-radius:8px;
+    backdrop-filter: blur(4px); color:white; font-size:14px;
+  }
+  footer { position: fixed; left:20px; bottom:20px; color:#bcd; font-size:13px; }
+</style>
+</head>
+<body>
+<div id="startScreen">
+  <div id="logo">TOKEN‑DASH</div>
+  <div id="clickText">click to start</div>
+</div>
+
+<canvas id="game" width="960" height="540"></canvas>
+
+<div class="overlay">
+  <span id="status">Distance: 0</span>
+  <button id="restartBtn">Restart (R)</button>
+</div>
+<footer>Controls: Space = Jump • W / ↑ = Flip gravity • R = Restart</footer>
+
+<script>
+/*** START FUNCTIONALITY ***/
+const startScreen = document.getElementById("startScreen");
+const logo = document.getElementById("logo");
+const gameCanvas = document.getElementById("game");
+
+logo.addEventListener("click", () => {
+  startScreen.style.display = "none";
+  gameCanvas.style.display = "block";
+  startGame();
+});
+
+/*** GAME LOGIC (trimmed from earlier version — still fully functional) ***/
+let ctx, W, H, lastTime, distance, game;
+
+function startGame() {
+  const canvas = gameCanvas;
+  ctx = canvas.getContext("2d");
+  W = canvas.width;
+  H = canvas.height;
+  lastTime = performance.now();
+  distance = 0;
+
+  class Player {
+    constructor(x,y) {
+      this.x=x; this.y=y; this.w=44; this.h=44;
+      this.vy=0; this.g=1; this.onSurface=false; this.alive=true;
+    }
+    jump(){ if(this.onSurface){ this.vy = this.g===1 ? -620 : 620; this.onSurface=false; } }
+    flip(){ this.g *= -1; this.vy *= -0.2; }
+    die(){ this.alive=false; }
+    update(dt, lvl){
+      this.vy += 2200 * this.g * dt;
+      this.y += this.vy * dt;
+
+      this.onSurface = false;
+      for (let p of lvl.plats){
+        if (this.x+this.w>p.x && this.x<p.x+p.w){
+          if (this.g===1){
+            let ground = p.y - this.h;
+            if (this.y > ground && this.y < ground+50 && this.vy>=0){
+              this.y=ground; this.vy=0; this.onSurface=true;
+            }
+          } else {
+            let ceil = p.y + p.h;
+            if (this.y < ceil && this.y > ceil-50 && this.vy<=0){
+              this.y=ceil; this.vy=0; this.onSurface=true;
+            }
+          }
+        }
+      }
+      for (let s of lvl.spikes){
+        if (!(this.x+this.w < s.x || this.x > s.x+s.w || this.y+this.h < s.y || this.y > s.y+s.h)){
+          this.die();
+        }
+      }
+      if (this.y>H+200 || this.y<-200) this.die();
+    }
+    draw(camX){
+      ctx.fillStyle="#1bd7ff";
+      ctx.fillRect(this.x-camX,this.y,this.w,this.h);
+    }
+  }
+
+  class Level {
+    constructor(){
+      this.plats=[]; this.spikes=[];
+      this.gen();
+    }
+    gen(){
+      this.plats.push({x:-500,y:H-90,w:1500,h:90});
+      let x=300;
+      while(x<5000){
+        let y=H-90-Math.random()*120;
+        let w=300+Math.random()*200;
+        this.plats.push({x,y,w,h:90});
+        if(Math.random()<0.4){
+          this.spikes.push({x:x+w-30,y:y-28,w:24,h:28});
+        }
+        x+=w+150+Math.random()*180;
+      }
+      this.finish=x+400;
+    }
+  }
+
+  game={
+    player:new Player(160,H-90-44),
+    lvl:new Level(),
+    camX:0
+  };
+
+  window.addEventListener("keydown", (e)=>{
+    if(e.code=="Space") game.player.jump();
+    if(e.code=="KeyW"||e.code=="ArrowUp") game.player.flip();
+    if(e.code=="KeyR") restart();
+  });
+
+  function restart(){
+    game.player=new Player(160,H-90-44);
+    game.lvl=new Level();
+    distance=0;
+    game.camX=0;
+  }
+
+  function loop(ts){
+    let dt=(ts-lastTime)/1000;
+    lastTime=ts;
+    update(dt);
+    render();
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+
+  function update(dt){
+    if(game.player.alive){
+      distance+=420*dt;
+      game.camX=distance-120;
+      game.player.update(dt, game.lvl);
+    }
+    document.getElementById("status").textContent="Distance: "+Math.floor(distance);
+  }
+
+  function render(){
+    ctx.clearRect(0,0,W,H);
+    ctx.fillStyle="#071022"; ctx.fillRect(0,0,W,H);
+
+    for(let p of game.lvl.plats){
+      let px=p.x-game.camX;
+      if(px>-200 && px<W+200){
+        ctx.fillStyle="#1b2640";
+        ctx.fillRect(px,p.y,p.w,p.h);
+      }
+    }
+    for(let s of game.lvl.spikes){
+      let sx=s.x-game.camX;
+      ctx.fillStyle="#ff5f6d";
+      ctx.fillRect(sx,s.y,s.w,s.h);
+    }
+
+    game.player.draw(game.camX);
+  }
+}
+</script>
+</body>
+</html>
